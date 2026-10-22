@@ -78,12 +78,6 @@
   </div>
 
   <audio ref="{{ audioRef }}" loop="{{ loopAudio }}" preload="auto" src="./assets/song-groom.mp3"></audio>
-
-  <!-- Auto-scroll toggle button -->
-  <button data-autoscroll-btn="" sc-camel-on-click="{{ toggleAutoScroll }}" aria-label="Toggle auto scroll" style="position:fixed;right:16px;bottom:78px;z-index:60;width:50px;height:50px;border-radius:50%;border:1px solid rgba(242,226,196,.45);background:#7B1420;color:#F2E2C4;font-size:16px;cursor:pointer;box-shadow:0 8px 22px rgba(74,32,24,.32);display:flex;align-items:center;justify-content:center" style-hover="background:#9B1B2E">
-    <span style="display:block;line-height:1">{{ autoScrollIcon }}</span>
-  </button>
-
   <button sc-camel-on-click="{{ toggleMusic }}" aria-label="Toggle background music" style="position:fixed;right:16px;bottom:18px;z-index:60;width:50px;height:50px;border-radius:50%;border:1px solid rgba(242,226,196,.45);background:#7B1420;color:#F2E2C4;font-size:20px;cursor:pointer;box-shadow:0 8px 22px rgba(74,32,24,.32);display:flex;align-items:center;justify-content:center" style-hover="background:#9B1B2E">
     <span style="position:relative;display:block;line-height:1">♪<span style="position:absolute;left:-7px;top:50%;width:24px;height:1.5px;background:currentColor;transform:rotate(-38deg);opacity:{{ muteLineOpacity }}"></span></span>
   </button>
@@ -282,7 +276,7 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;weddingDateTime&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;2026-11-25T18:00:00&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Content&quot;},&quot;mapsUrl&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;https://maps.google.com/?q=The+Royale+Palace+Banquet+by+Khanak+Sector+132+Noida&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Content&quot;}}">
 class Component extends DCLogic {
-  state = { coverOpen: false, coverGone: false, muted: true, now: Date.now(), autoScroll: false };
+  state = { coverOpen: false, coverGone: false, muted: true, now: Date.now() };
 
   componentDidMount() {
     this.timer = setInterval(() => this.setState({ now: Date.now() }), 1000);
@@ -294,7 +288,7 @@ class Component extends DCLogic {
   }
   componentWillUnmount() {
     clearInterval(this.timer);
-    this.stopAutoScroll(true);
+    this.stopAutoScroll();
     clearTimeout(this._asResume);
     if (this._asPause) ['wheel','touchstart','touchmove','pointerdown','keydown'].forEach(ev => window.removeEventListener(ev, this._asPause));
   }
@@ -325,7 +319,7 @@ class Component extends DCLogic {
     this.setState({ coverOpen: true });
     setTimeout(() => {
       this.setState({ coverGone: true });
-      setTimeout(() => this.startAutoScroll(), 1200);
+      setTimeout(() => this.startAutoScroll(), 1000);   // auto-scroll begins after the first tap opens the cover
     }, 3950);
     const a = this.audio.current;
     if (a) { a.loop = true; a.volume = 0.6; if (a.paused) { a.play().then(() => { this.setState({ muted: false }); this.clearAudioGates(); }).catch(() => {}); } }
@@ -334,13 +328,10 @@ class Component extends DCLogic {
   /* ---------- AUTO SCROLL ---------- */
   startAutoScroll() {
     if (this._asRunning) return;
-    const max = () => document.documentElement.scrollHeight - window.innerHeight;
-    if (window.scrollY >= max() - 2) window.scrollTo(0, 0);   // restart from top if at the end
     this._asRunning = true;
     this._asHold = false;
     this._asPos = window.scrollY;
     this._asLast = null;
-    this.setState({ autoScroll: true });
     const SPEED = 45; // pixels per second: raise for faster, lower for slower
     const step = (t) => {
       if (!this._asRunning) return;
@@ -348,32 +339,31 @@ class Component extends DCLogic {
       const dt = Math.min(t - this._asLast, 100) / 1000;
       this._asLast = t;
       if (!this._asHold) {
+        const max = document.documentElement.scrollHeight - window.innerHeight;
         // if the guest scrolled manually, continue from where they are
         if (Math.abs(window.scrollY - this._asPos) > 3) this._asPos = window.scrollY;
-        this._asPos += SPEED * dt;
-        const m = max();
-        if (this._asPos >= m) { window.scrollTo(0, m); this.stopAutoScroll(); return; }
-        window.scrollTo(0, this._asPos);
+        if (this._asPos < max) {
+          this._asPos = Math.min(max, this._asPos + SPEED * dt);
+          window.scrollTo(0, this._asPos);
+        }
       }
-      this._asRaf = requestAnimationFrame(step);
+      this._asRaf = requestAnimationFrame(step);   // keeps running so it can resume after manual scrolling
     };
     this._asRaf = requestAnimationFrame(step);
   }
 
-  stopAutoScroll(silent) {
+  stopAutoScroll() {
     this._asRunning = false;
     if (this._asRaf) cancelAnimationFrame(this._asRaf);
-    if (!silent) this.setState({ autoScroll: false });
   }
 
   setupAutoScrollPause() {
     if (this._asPause) return;
-    this._asPause = (e) => {
+    this._asPause = () => {
       if (!this._asRunning) return;
-      if (e.target && e.target.closest && e.target.closest('[data-autoscroll-btn]')) return;
-      this._asHold = true;                       // pause while the guest interacts
+      this._asHold = true;                       // pause while the guest scrolls by hand
       clearTimeout(this._asResume);
-      this._asResume = setTimeout(() => {        // resume 3s after they stop
+      this._asResume = setTimeout(() => {        // resume 3 seconds after they stop
         this._asHold = false;
         this._asPos = window.scrollY;
       }, 3000);
@@ -581,12 +571,7 @@ class Component extends DCLogic {
       cdDays: this.two(Math.floor(s / 86400)),
       cdHours: this.two(Math.floor(s / 3600) % 24),
       cdMinutes: this.two(Math.floor(s / 60) % 60),
-      cdSeconds: this.two(s % 60),
-      autoScrollIcon: this.state.autoScroll ? '❚❚' : '▼',
-      toggleAutoScroll: () => {
-        if (this._asRunning) this.stopAutoScroll();
-        else this.startAutoScroll();
-      }
+      cdSeconds: this.two(s % 60)
     };
   }
 }
